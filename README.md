@@ -12,5 +12,5 @@ Materiały i komponenty:
 5.	Mechanizm dozujący:
 o	Drukowany 3D lub wykonany z plexi/metalowych części.
 6.	Konstrukcja:
-o	Elementy wydrukowane na drukarce 3D.
+Elementy wydrukowane na drukarce 3D.
 7.	Opcjonalnie: Wyświetlacz OLED/TFT do monitorowania wyników pracy.
