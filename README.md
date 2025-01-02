@@ -11,6 +11,7 @@ Materiały i komponenty:
 4.	Silnik krokowy: NEMA17 17HS4023 42mm
 5.	Mechanizm dozujący:
 o	Drukowany 3D lub wykonany z plexi/metalowych części.
-6.	Konstrukcja:
-Elementy wydrukowane na drukarce 3D.
+6.	Konstrukcja: Elementy wydrukowane na drukarce 3D.
 7.	Opcjonalnie: Wyświetlacz OLED/TFT do monitorowania wyników pracy.
+
+<p align="center"> <a href="https://github.com/JakubZasadni/SortingRobot" target="_blank" rel="noreferrer"> <img src="https://github.com/JakubZasadni/SortingRobot/blob/main/SortingRobot.png" alt="c" width="638" height="424"/> </a>
