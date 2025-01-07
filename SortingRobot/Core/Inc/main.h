@@ -67,6 +67,14 @@ void Error_Handler(void);
 #define IN3_GPIO_Port GPIOA
 #define IN4_Pin GPIO_PIN_5
 #define IN4_GPIO_Port GPIOA
+#define STEP_A1_Pin GPIO_PIN_6
+#define STEP_A1_GPIO_Port GPIOA
+#define STEP_A2_Pin GPIO_PIN_7
+#define STEP_A2_GPIO_Port GPIOA
+#define STEP_B1_Pin GPIO_PIN_8
+#define STEP_B1_GPIO_Port GPIOA
+#define STEP_B2_Pin GPIO_PIN_9
+#define STEP_B2_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 
