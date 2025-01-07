@@ -43,8 +43,7 @@
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
-
-UART_HandleTypeDef huart3;
+TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
 
@@ -54,17 +53,57 @@ UART_HandleTypeDef huart3;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART3_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+//Silnik krokowy NEMA17
+#define STEP_A1 GPIO_PIN_6   // PA6 -> IN1
+#define STEP_A2 GPIO_PIN_7   // PA7 -> IN2
+#define STEP_B1 GPIO_PIN_8   // PA8 -> IN3
+#define STEP_B2 GPIO_PIN_9   // PA9 -> IN4
+
+#define GPIO_PORT GPIOA  // Wszystkie piny są na porcie GPIOA
+
+uint8_t step_sequence2[4][4] = {
+    {1, 0, 1, 0},
+    {0, 1, 1, 0},
+    {0, 1, 0, 1},
+    {1, 0, 0, 1}
+};
+volatile uint8_t step_index2 = 0;     // Indeks bieżącego kroku
+volatile uint16_t step_count = 0;    // Licznik kroków dla jednej pozycji
+volatile uint16_t steps_per_position = 25;  // Kroki na jedną pozycję
+
+volatile uint8_t current_position = 0;  // Bieżąca pozycja (od 0 do 7)
+volatile uint8_t target_position = 0;   // Docelowa pozycja (od 0 do 7)
+volatile uint8_t total_positions = 8;   // Liczba pozycji (8 przegrody)
+
+
+/*void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+    if (htim->Instance == TIM4) {  // Sprawdzenie, czy przerwanie pochodzi od TIM4
+        if (step_count < steps_per_position) {  // Sprawdź, czy nie osiągnięto liczby kroków dla pozycji
+
+            HAL_GPIO_WritePin(GPIO_PORT, STEP_A1, step_sequence2[step_index2][0]);
+            HAL_GPIO_WritePin(GPIO_PORT, STEP_A2, step_sequence2[step_index2][1]);
+            HAL_GPIO_WritePin(GPIO_PORT, STEP_B1, step_sequence2[step_index2][2]);
+            HAL_GPIO_WritePin(GPIO_PORT, STEP_B2, step_sequence2[step_index2][3]);
+
+            step_index2 = (step_index2 + 1) % 4;  // Zwiększ indeks kroku
+            step_count++;  // Zwiększ licznik kroków
+        }
+    }
+}*/
+
 //Silnik krokowy 28BYJ-48 z ULN2003
 //definicje
+
 
 #define IN1 GPIO_PIN_2  // Podłączony do IN1 ULN2003
 #define IN2 GPIO_PIN_3  // Podłączony do IN2 ULN2003
@@ -105,6 +144,24 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
         step_index = (step_index + 1) % 8;  // Zwiększ indeks kroku
     }
+
+
+    if (htim->Instance == TIM4) {  // Sprawdzenie, czy przerwanie pochodzi od TIM4
+            if (step_count < steps_per_position) {  // Jeśli nie osiągnięto jeszcze liczby kroków dla pozycji
+                // Sterowanie cewkami silnika
+                HAL_GPIO_WritePin(GPIO_PORT, STEP_A1, step_sequence2[step_index2][0]);
+                HAL_GPIO_WritePin(GPIO_PORT, STEP_A2, step_sequence2[step_index2][1]);
+                HAL_GPIO_WritePin(GPIO_PORT, STEP_B1, step_sequence2[step_index2][2]);
+                HAL_GPIO_WritePin(GPIO_PORT, STEP_B2, step_sequence2[step_index2][3]);
+
+                step_index2 = (step_index2 + 1) % 4;  // Przejdź do kolejnego kroku w sekwencji półkrokowej
+                step_count++;  // Zwiększ licznik kroków
+            } else {
+                // Przejdź do kolejnej pozycji
+                step_count = 0;  // Zresetuj licznik kroków
+                current_position = (current_position + 1) % 4;  // Zwiększ pozycję i zacznij od nowa
+            }
+        }
 }
 
 //Serwomechanizm SG90
@@ -150,12 +207,13 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART3_UART_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
   HAL_TIM_Base_Start_IT(&htim3); // Uruchom przerwania dla TIM3
+  HAL_TIM_Base_Start_IT(&htim4);  // Uruchom Timer 4 z przerwaniami
 
   /* USER CODE END 2 */
 
@@ -307,7 +365,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 8399;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 24;
+  htim3.Init.Period = 50-1;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -332,37 +390,47 @@ static void MX_TIM3_Init(void)
 }
 
 /**
-  * @brief USART3 Initialization Function
+  * @brief TIM4 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART3_UART_Init(void)
+static void MX_TIM4_Init(void)
 {
 
-  /* USER CODE BEGIN USART3_Init 0 */
+  /* USER CODE BEGIN TIM4_Init 0 */
 
-  /* USER CODE END USART3_Init 0 */
+  /* USER CODE END TIM4_Init 0 */
 
-  /* USER CODE BEGIN USART3_Init 1 */
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-  /* USER CODE END USART3_Init 1 */
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 8399;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 50-1;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART3_Init 2 */
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
 
-  /* USER CODE END USART3_Init 2 */
+  /* USER CODE END TIM4_Init 2 */
 
 }
 
@@ -379,13 +447,15 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, IN1_Pin|IN2_Pin|IN3_Pin|IN4_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, IN1_Pin|IN2_Pin|IN3_Pin|IN4_Pin
+                          |STEP_A1_Pin|STEP_A2_Pin|STEP_B1_Pin|STEP_B2_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : IN1_Pin IN2_Pin IN3_Pin IN4_Pin */
-  GPIO_InitStruct.Pin = IN1_Pin|IN2_Pin|IN3_Pin|IN4_Pin;
+  /*Configure GPIO pins : IN1_Pin IN2_Pin IN3_Pin IN4_Pin
+                           STEP_A1_Pin STEP_A2_Pin STEP_B1_Pin STEP_B2_Pin */
+  GPIO_InitStruct.Pin = IN1_Pin|IN2_Pin|IN3_Pin|IN4_Pin
+                          |STEP_A1_Pin|STEP_A2_Pin|STEP_B1_Pin|STEP_B2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
