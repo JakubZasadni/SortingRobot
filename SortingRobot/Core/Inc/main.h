@@ -59,6 +59,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define IR_SENSOR_Pin GPIO_PIN_0
+#define IR_SENSOR_GPIO_Port GPIOA
 #define IN1_Pin GPIO_PIN_2
 #define IN1_GPIO_Port GPIOA
 #define IN2_Pin GPIO_PIN_3
