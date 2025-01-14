@@ -21,7 +21,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include"stdio.h"
 #include "stdlib.h"
+#include "tcs34725.h"
+#include "ir_sensor.h"
+#include "stepper_nema.h"
+#include "stepper_28byj.h"
+#include "servo.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,7 +48,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 I2C_HandleTypeDef hi2c1;
-
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
@@ -65,237 +70,6 @@ static void MX_I2C1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-// Definicje dla czujnika TCS34725
-#define TCS34725_I2C_ADDRESS (0x29 << 1)
-
-#define TCS34725_ENABLE_REG  0x00
-#define TCS34725_RGBC_TIMING 0x01
-#define TCS34725_CONTROL     0x0F
-#define TCS34725_CDATAL      0x14
-#define TCS34725_RDATAL      0x16
-#define TCS34725_GDATAL      0x18
-#define TCS34725_BDATAL      0x1A
-
-#define TCS34725_ENABLE_PON  0x01
-#define TCS34725_ENABLE_AEN  0x02
-
-// Definicje kolorów
-#define COLOR_UNKNOWN 0
-#define COLOR_RED     1
-#define COLOR_GREEN   2
-#define COLOR_BLUE    3
-#define COLOR_YELLOW  4
-#define COLOR_ORANGE  5
-#define COLOR_PURPLE  6
-#define COLOR_WHITE   7
-#define COLOR_BLACK   8
-
-extern I2C_HandleTypeDef hi2c1;  // Używany interfejs I2C
-
-// Funkcja zapisu do rejestru TCS34725
-static void TCS34725_WriteRegister(uint8_t reg, uint8_t value) {
-    uint8_t data[2] = {reg | 0x80, value};  // Ustawienie bitu CMD (0x80)
-    HAL_I2C_Master_Transmit(&hi2c1, TCS34725_I2C_ADDRESS, data, 2, HAL_MAX_DELAY);
-}
-
-// Funkcja odczytu danych z rejestru TCS34725
-static uint16_t TCS34725_ReadRegister(uint8_t reg) {
-    uint8_t data[2] = {0};
-    HAL_I2C_Master_Transmit(&hi2c1, TCS34725_I2C_ADDRESS, &reg, 1, HAL_MAX_DELAY);
-    HAL_I2C_Master_Receive(&hi2c1, TCS34725_I2C_ADDRESS, data, 2, HAL_MAX_DELAY);
-    return (data[1] << 8) | data[0];
-}
-
-// Funkcja inicjalizująca czujnik TCS34725
-void TCS34725_Init(void) {
-    // Włącz zasilanie i ADC
-    TCS34725_WriteRegister(TCS34725_ENABLE_REG, TCS34725_ENABLE_PON);
-    HAL_Delay(3);
-    TCS34725_WriteRegister(TCS34725_ENABLE_REG, TCS34725_ENABLE_PON | TCS34725_ENABLE_AEN);
-
-    // Ustaw domyślny czas integracji i wzmocnienie
-    TCS34725_WriteRegister(TCS34725_RGBC_TIMING, 0x00);
-    TCS34725_WriteRegister(TCS34725_CONTROL, 0x01);
-}
-
-// Funkcja odczytująca surowe dane kolorów
-static void TCS34725_GetRawData(uint16_t *red, uint16_t *green, uint16_t *blue, uint16_t *clear) {
-    *clear = TCS34725_ReadRegister(TCS34725_CDATAL);
-    *red   = TCS34725_ReadRegister(TCS34725_RDATAL);
-    *green = TCS34725_ReadRegister(TCS34725_GDATAL);
-    *blue  = TCS34725_ReadRegister(TCS34725_BDATAL);
-}
-
-// Funkcja do rozpoznawania koloru na podstawie surowych danych
-uint8_t TCS34725_GetColor(void) {
-    uint16_t red, green, blue, clear;
-    TCS34725_GetRawData(&red, &green, &blue, &clear);
-
-    if (clear == 0) return COLOR_UNKNOWN;
-
-    // Normalizacja wartości
-    float r_ratio = (float)red / clear;
-    float g_ratio = (float)green / clear;
-    float b_ratio = (float)blue / clear;
-
-    // Prosta klasyfikacja kolorów
-    if (r_ratio > 0.4 && g_ratio < 0.3 && b_ratio < 0.3) return COLOR_RED;
-    if (g_ratio > 0.4 && r_ratio < 0.3 && b_ratio < 0.3) return COLOR_GREEN;
-    if (b_ratio > 0.4 && r_ratio < 0.3 && g_ratio < 0.3) return COLOR_BLUE;
-    if (r_ratio > 0.3 && g_ratio > 0.3 && b_ratio < 0.2) return COLOR_YELLOW;
-    if (r_ratio > 0.3 && g_ratio > 0.2 && b_ratio > 0.2) return COLOR_ORANGE;
-    if (r_ratio > 0.2 && g_ratio < 0.3 && b_ratio > 0.3) return COLOR_PURPLE;
-    if (r_ratio > 0.3 && g_ratio > 0.3 && b_ratio > 0.3) return COLOR_WHITE;
-    if (r_ratio < 0.2 && g_ratio < 0.2 && b_ratio < 0.2) return COLOR_BLACK;
-
-    return COLOR_UNKNOWN;
-}
-
-// Definicje pinów TCRT5000 IR
-#define IR_SENSOR_PIN GPIO_PIN_0
-#define IR_SENSOR_PORT GPIOA
-
-void IR_Sensor_Init(void) {
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-
-    GPIO_InitStruct.Pin = IR_SENSOR_PIN;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(IR_SENSOR_PORT, &GPIO_InitStruct);
-}
-
-// Funkcja sprawdzająca, czy koralik został wykryty
-uint8_t IR_Sensor_Detected(void) {
-    return HAL_GPIO_ReadPin(IR_SENSOR_PORT, IR_SENSOR_PIN) == GPIO_PIN_SET;
-}
-
-
-//Silnik krokowy NEMA17
-#define STEP_A1 GPIO_PIN_6   // PA6 -> IN1
-#define STEP_A2 GPIO_PIN_7   // PA7 -> IN2
-#define STEP_B1 GPIO_PIN_8   // PA8 -> IN3
-#define STEP_B2 GPIO_PIN_9   // PA9 -> IN4
-
-#define GPIO_PORT GPIOA  // Wszystkie piny są na porcie GPIOA
-
-uint8_t step_sequence2[4][4] = {
-    {1, 0, 1, 0},
-    {0, 1, 1, 0},
-    {0, 1, 0, 1},
-    {1, 0, 0, 1}
-};
-volatile uint8_t step_index2 = 0;     // Indeks bieżącego kroku
-volatile uint16_t step_count = 0;    // Licznik kroków dla jednej pozycji
-volatile uint16_t steps_per_position = 25;  // Kroki na jedną pozycję
-
-volatile uint8_t current_position = 0;  // Bieżąca pozycja (od 0 do 7)
-volatile uint8_t target_position = 0;   // Docelowa pozycja (od 0 do 7)
-volatile uint8_t total_positions = 8;   // Liczba pozycji (8 przegrody)
-
-
-/*void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-    if (htim->Instance == TIM4) {  // Sprawdzenie, czy przerwanie pochodzi od TIM4
-        if (step_count < steps_per_position) {  // Sprawdź, czy nie osiągnięto liczby kroków dla pozycji
-
-            HAL_GPIO_WritePin(GPIO_PORT, STEP_A1, step_sequence2[step_index2][0]);
-            HAL_GPIO_WritePin(GPIO_PORT, STEP_A2, step_sequence2[step_index2][1]);
-            HAL_GPIO_WritePin(GPIO_PORT, STEP_B1, step_sequence2[step_index2][2]);
-            HAL_GPIO_WritePin(GPIO_PORT, STEP_B2, step_sequence2[step_index2][3]);
-
-            step_index2 = (step_index2 + 1) % 4;  // Zwiększ indeks kroku
-            step_count++;  // Zwiększ licznik kroków
-        }
-    }
-}*/
-
-// Funkcja do ustawienia pozycji silnika NEMA 17
-void Stepper_MoveToStep(uint8_t position) {
-    if (position < total_positions) {
-        target_position = position;
-        step_count = 0;  // Zresetuj licznik kroków
-        steps_per_position = abs(target_position - current_position) * 25;  // Oblicz kroki do docelowej pozycji
-    }
-}
-
-//Silnik krokowy 28BYJ-48 z ULN2003
-//definicje
-
-
-#define IN1 GPIO_PIN_2  // Podłączony do IN1 ULN2003
-#define IN2 GPIO_PIN_3  // Podłączony do IN2 ULN2003
-#define IN3 GPIO_PIN_4  // Podłączony do IN3 ULN2003
-#define IN4 GPIO_PIN_5  // Podłączony do IN4 ULN2003
-#define STEP_GPIO GPIOA       // Port GPIOA
-
-volatile uint8_t step_index = 0;  // Indeks bieżącego kroku
-
-
-uint8_t step_sequence[8][4] = {
-    {1, 0, 0, 0},
-    {1, 1, 0, 0},
-    {0, 1, 0, 0},
-    {0, 1, 1, 0},
-    {0, 0, 1, 0},
-    {0, 0, 1, 1},
-    {0, 0, 0, 1},
-    {1, 0, 0, 1}
-};
-
-/*
-uint8_t step_sequence[4][4] = {
-    {1, 0, 0, 1},
-    {1, 1, 0, 0},
-    {0, 1, 1, 0},
-    {0, 0, 1, 1}
-};
-*/
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-    if (htim->Instance == TIM3) {  // Sprawdzenie, czy przerwanie pochodzi od TIM3
-        // Sterowanie silnikiem krokowym
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, step_sequence[step_index][0]);
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, step_sequence[step_index][1]);
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, step_sequence[step_index][2]);
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, step_sequence[step_index][3]);
-
-        step_index = (step_index + 1) % 8;  // Zwiększ indeks kroku
-    }
-
-
-    if (htim->Instance == TIM4) {  // Sprawdzenie, czy przerwanie pochodzi od TIM4
-            if (step_count < steps_per_position) {  // Jeśli nie osiągnięto jeszcze liczby kroków dla pozycji
-                // Sterowanie cewkami silnika
-                HAL_GPIO_WritePin(GPIO_PORT, STEP_A1, step_sequence2[step_index2][0]);
-                HAL_GPIO_WritePin(GPIO_PORT, STEP_A2, step_sequence2[step_index2][1]);
-                HAL_GPIO_WritePin(GPIO_PORT, STEP_B1, step_sequence2[step_index2][2]);
-                HAL_GPIO_WritePin(GPIO_PORT, STEP_B2, step_sequence2[step_index2][3]);
-
-                step_index2 = (step_index2 + 1) % 4;  // Przejdź do kolejnego kroku w sekwencji półkrokowej
-                step_count++;  // Zwiększ licznik kroków
-            } else {
-                // Przejdź do kolejnej pozycji
-                step_count = 0;  // Zresetuj licznik kroków
-                current_position = (current_position + 1) % 4;  // Zwiększ pozycję i zacznij od nowa
-            }
-        }
-}
-
-//Serwomechanizm SG90
-
-//Funkcja przeliczania kąta
-void SetServoAngle(uint8_t angle) {
-    // Przeliczenie kąta na impuls PWM (zakres od 0.5 ms do 2.5 ms)
-    uint16_t pulse_length = 500 + ((angle * 2000) / 180);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, pulse_length); // Ustawienie wartości PWM
-}
-
-void activate_servo(void) {
-    // Funkcja aktywująca serwomechanizm w celu wypchnięcia koralika
-    SetServoAngle(90);
-    HAL_Delay(500);
-    SetServoAngle(0);
-}
 
 /* USER CODE END 0 */
 
@@ -345,55 +119,55 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  // Uruchomienie silnika 28BYJ-48 do podawania koralików
-	  	  	  HAL_TIM_Base_Start_IT(&htim3);  // Uruchomienie przerwań timera 3 dla 28BYJ-48
+	      // Uruchomienie silnika 28BYJ-48 do podawania koralików
+	      HAL_TIM_Base_Start_IT(&htim3);
 
-	          // Czekaj, aż czujnik odbiciowy wykryje koralik
-	          while (!IR_Sensor_Detected());
+	      // Czekaj, aż czujnik odbiciowy wykryje koralik
+	      while (!IR_Sensor_Detected());
 
-	          // Zatrzymaj silnik podający koraliki
-	          HAL_TIM_Base_Stop_IT(&htim3);  // Zatrzymanie przerwań timera 3
+	      // Zatrzymaj silnik podający koraliki
+	      HAL_TIM_Base_Stop_IT(&htim3);
 
-	          // Odczytaj kolor koralika za pomocą TCS34725
-	          uint8_t detected_color = TCS34725_GetColor();
+	      // Odczytaj kolor koralika za pomocą TCS34725
+	      uint8_t detected_color = TCS34725_GetColor();
 
-	          // Obrót silnika krokowego NEMA 17 do odpowiedniej pozycji
-	          switch (detected_color) {
-	              case COLOR_RED:
-	                  Stepper_MoveToStep(0);
-	                  break;
-	              case COLOR_GREEN:
-	                  Stepper_MoveToStep(1);
-	                  break;
-	              case COLOR_BLUE:
-	                  Stepper_MoveToStep(2);
-	                  break;
-	              case COLOR_YELLOW:
-	                  Stepper_MoveToStep(3);
-	                  break;
-	              case COLOR_ORANGE:
-	                  Stepper_MoveToStep(4);
-	                  break;
-	              case COLOR_PURPLE:
-	                  Stepper_MoveToStep(5);
-	                  break;
-	              case COLOR_WHITE:
-	                  Stepper_MoveToStep(6);
-	                  break;
-	              case COLOR_BLACK:
-	                  Stepper_MoveToStep(7);
-	                  break;
-	              default:
-	                  // Jeśli kolor nieznany, zignoruj koralik
-	                  continue;
-	          }
-
-	          // Pozycjonowanie serwomechanizmu w celu wrzucenia koralika do odpowiedniego pojemnika
-	          activate_servo();
-
-	          // Krótka przerwa przed ponownym uruchomieniem silnika podającego
-	          HAL_Delay(500);
+	      // Obrót silnika krokowego NEMA 17 do odpowiedniej pozycji
+	      switch (detected_color) {
+	        case COLOR_RED:
+	          Stepper_MoveToStep(0);
+	          break;
+	        case COLOR_GREEN:
+	          Stepper_MoveToStep(1);
+	          break;
+	        case COLOR_BLUE:
+	          Stepper_MoveToStep(2);
+	          break;
+	        case COLOR_YELLOW:
+	          Stepper_MoveToStep(3);
+	          break;
+	        case COLOR_ORANGE:
+	          Stepper_MoveToStep(4);
+	          break;
+	        case COLOR_PURPLE:
+	          Stepper_MoveToStep(5);
+	          break;
+	        case COLOR_WHITE:
+	          Stepper_MoveToStep(6);
+	          break;
+	        case COLOR_BLACK:
+	          Stepper_MoveToStep(7);
+	          break;
+	        default:
+	          // Jeśli kolor nieznany, zignoruj koralik
+	          continue;
 	      }
+
+	      // Pozycjonowanie serwomechanizmu w celu wrzucenia koralika do odpowiedniego pojemnika
+	      activate_servo();
+
+	      // Krótka przerwa przed ponownym uruchomieniem silnika podającego
+	      HAL_Delay(500);
+	    }
 
     /* USER CODE END WHILE */
 

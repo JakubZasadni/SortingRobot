@@ -28,7 +28,11 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f7xx_hal.h"
-
+#include "tcs34725.h"
+#include "ir_sensor.h"
+#include "stepper_nema.h"
+#include "stepper_28byj.h"
+#include "servo.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
